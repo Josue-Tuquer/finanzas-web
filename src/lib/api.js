@@ -1,6 +1,8 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL?.replace(/\/+$/, "");
 
 export const AUTH_TOKEN_STORAGE_KEY = "auth_token";
+export const AUTH_USER_STORAGE_KEY = "auth_user";
+export const AUTH_SESSION_INVALID_EVENT = "auth:session-invalid";
 
 export function getAuthToken() {
   if (typeof localStorage === "undefined") return null;
@@ -14,10 +16,37 @@ export function setAuthToken(token) {
   localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
 }
 
+export function getAuthUser() {
+  if (typeof localStorage === "undefined") return null;
+
+  const storedUser = localStorage.getItem(AUTH_USER_STORAGE_KEY);
+  if (!storedUser) return null;
+
+  try {
+    return JSON.parse(storedUser);
+  } catch {
+    return null;
+  }
+}
+
+export function setAuthUser(user) {
+  if (typeof localStorage === "undefined") return;
+
+  localStorage.setItem(AUTH_USER_STORAGE_KEY, JSON.stringify(user));
+}
+
 export function clearAuthToken() {
   if (typeof localStorage === "undefined") return;
 
   localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+}
+
+export function clearAuthSession() {
+  clearAuthToken();
+
+  if (typeof localStorage !== "undefined") {
+    localStorage.removeItem(AUTH_USER_STORAGE_KEY);
+  }
 }
 
 async function request(path, { method = "GET", body, headers, ...options } = {}) {
@@ -63,7 +92,10 @@ async function request(path, { method = "GET", body, headers, ...options } = {})
   }
 
   if (response.status === 401) {
-    clearAuthToken();
+    if (token) {
+      clearAuthSession();
+      window.dispatchEvent(new Event(AUTH_SESSION_INVALID_EVENT));
+    }
   }
 
   if (!response.ok) {
