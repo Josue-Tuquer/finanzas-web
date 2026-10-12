@@ -19,59 +19,70 @@ import api, {
 
 const AuthContext = createContext(null);
 
-function readStoredUser() {
-  const token = getAuthToken();
-  const storedUser = getAuthUser();
-
-  if (token && storedUser) {
-    return storedUser;
-  }
-
-  clearAuthSession();
-  return null;
-}
-
-function saveSession({ token, user }) {
+async function saveSession({ token, user }) {
   if (!token || !user) {
     throw new Error("La API no devolvió el token y el usuario.");
   }
 
-  setAuthToken(token);
-  setAuthUser(user);
+  await Promise.all([setAuthToken(token), setAuthUser(user)]);
   return user;
 }
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(readStoredUser);
-  const isLoading = false;
+  const [user, setUser] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     const handleInvalidSession = () => setUser(null);
     window.addEventListener(AUTH_SESSION_INVALID_EVENT, handleInvalidSession);
 
+    async function restoreSession() {
+      try {
+        const [token, storedUser] = await Promise.all([getAuthToken(), getAuthUser()]);
+
+        if (!isMounted) return;
+        if (token && storedUser) {
+          setUser(storedUser);
+        } else {
+          clearAuthSession();
+        }
+      } catch {
+        if (isMounted) {
+          clearAuthSession();
+          setUser(null);
+        }
+      } finally {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+
+    void restoreSession();
+
     return () => {
+      isMounted = false;
       window.removeEventListener(AUTH_SESSION_INVALID_EVENT, handleInvalidSession);
     };
   }, []);
 
   const login = useCallback(async (credentials) => {
     const response = await api.post("auth/login", credentials);
-    const authenticatedUser = saveSession(response);
+    const authenticatedUser = await saveSession(response);
     setUser(authenticatedUser);
     return authenticatedUser;
   }, []);
 
   const register = useCallback(async (details) => {
     const response = await api.post("auth/register", details);
-    const authenticatedUser = saveSession(response);
+    const authenticatedUser = await saveSession(response);
     setUser(authenticatedUser);
     return authenticatedUser;
   }, []);
 
   const logout = useCallback(async () => {
-    const token = getAuthToken();
-
     try {
+      const token = await getAuthToken();
       if (token) {
         await api.post("auth/logout");
       }
